@@ -21,8 +21,14 @@ export async function DELETE(
   if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
 
   // Members can only remove from their own events
-  if (session.role === "member" && event.created_by !== session.id) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (session.role === "member") {
+    if (!event.created_by || event.created_by !== session.id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    const isDeptMatched = !event.department || (session.department && event.department === session.department);
+    if (!isDeptMatched) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
   }
 
   db.prepare("DELETE FROM event_members WHERE event_id = ? AND user_id = ?").run(eventId, userId);
