@@ -6,6 +6,9 @@ function getSecret(): Uint8Array {
   if (process.env.JWT_SECRET) {
     return new TextEncoder().encode(process.env.JWT_SECRET);
   }
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("[AUTH] FATAL: JWT_SECRET environment variable is required in production mode.");
+  }
   const array = new Uint8Array(32);
   crypto.getRandomValues(array);
   const key = Array.from(array).map((b) => b.toString(16).padStart(2, "0")).join("");
