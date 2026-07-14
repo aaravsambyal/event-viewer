@@ -14,10 +14,11 @@ export async function GET(request: NextRequest) {
 
   if (eventId) {
     query = `
-      WITH RECURSIVE event_tree AS (
-        SELECT id FROM events WHERE id = ?
+      WITH RECURSIVE event_tree(id, depth) AS (
+        SELECT id, 1 FROM events WHERE id = ?
         UNION
-        SELECT e.id FROM events e JOIN event_tree et ON e.parent_id = et.id
+        SELECT e.id, et.depth + 1 FROM events e JOIN event_tree et ON e.parent_id = et.id
+        WHERE et.depth < 100
       )
       SELECT i.id, i.filename, i.original_name, i.caption, i.uploaded_at,
              u.name as uploader_name, u.id as uploader_id,
