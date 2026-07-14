@@ -111,7 +111,6 @@ export default function EventsPage() {
     return checkSingleDate(dateStr, filterYear, filterMonth, filterDay);
   }, [filterYear, filterMonth, filterDay, checkSingleDate]);
 
-  // Check if event matches date filter on event_date and/or closing_date
   const checkEventDateMatch = useCallback((e: any): boolean => {
     const eventFilterActive = filterYear || filterMonth || filterDay;
     const closingFilterActive = closingFilterYear || closingFilterMonth || closingFilterDay;
@@ -177,7 +176,6 @@ export default function EventsPage() {
     return events.filter(e => ids.includes(e.id)).reduce((sum, e) => sum + (e.participant_count || 0), 0);
   }, [events]);
 
-  // Layout 1: Drill-down
   const currentEventId = drillStack[drillStack.length - 1];
   const currentEvent = currentEventId ? events.find(e => e.id === currentEventId) : null;
 
@@ -275,7 +273,6 @@ export default function EventsPage() {
     }
   }, []);
 
-  // Layout 2: Images
   const loadEventImages = useCallback(async (eventId: number) => {
     setImagesLoading(true);
     try {
@@ -353,14 +350,11 @@ export default function EventsPage() {
       return sorted;
     };
 
-    // Check if a sub-event or any of its descendants has images in the filtered dept
     const hasMatchingDeptImages = (eventId: number): boolean => {
       if (!imagesDeptFilter) return true;
       const ev = events.find(e => e.id === eventId);
       if (ev && ev.department === imagesDeptFilter) return true;
-      // Check loaded images for this event
       if (imagesLoaded.some(img => img.event_id === eventId && img.event_department === imagesDeptFilter)) return true;
-      // Recurse into children
       const children = events.filter(e => e.parent_id === eventId);
       return children.some(child => hasMatchingDeptImages(child.id));
     };
@@ -368,7 +362,6 @@ export default function EventsPage() {
     const renderGroup = (parentId: number | null, depth: number = 0): React.ReactNode => {
       const targetParentId = parentId === null ? imagesSelectedMain : parentId;
       const rawChildren = events.filter(e => e.parent_id === targetParentId);
-      // Filter by dept if active — only show sub-events relevant to selected dept
       const deptFiltered = imagesDeptFilter
         ? rawChildren.filter(sub => hasMatchingDeptImages(sub.id))
         : rawChildren;
@@ -440,12 +433,19 @@ export default function EventsPage() {
     return result;
   }, [imagesLoaded, imagesSelectedSub, events, imagesDeptFilter, imagesSort, checkDateMatch]);
   
-  // Layout 3: Tree
   const treeData = useMemo(() => {
     const buildTree = (parentId: number | null): any[] => {
       return filtered.filter(e => e.parent_id === parentId).map(e => ({ ...e, children: buildTree(e.id) }));
     };
-    return filtered.filter(e => e.type === 'main').map(e => ({ ...e, children: buildTree(e.id) }));
+    
+    const mains = filtered.filter(e => e.type === 'main');
+    const mainTrees = mains.map(e => ({ ...e, children: buildTree(e.id) }));
+
+    const subIds = new Set(filtered.map(e => e.id));
+    const orphanedSubs = filtered.filter(e => e.type === 'sub' && (!e.parent_id || !subIds.has(e.parent_id)));
+    const orphanedTrees = orphanedSubs.map(e => ({ ...e, children: buildTree(e.id) }));
+
+    return [...mainTrees, ...orphanedTrees];
   }, [filtered]);
 
   const [treeExpanded, setTreeExpanded] = useState<Record<number, boolean>>({});
@@ -460,325 +460,188 @@ export default function EventsPage() {
     };
     expandAll(treeData);
     setTreeExpanded(newExpanded);
-  }, [viewMode, treeData]);
+  }, [treeData, viewMode]);
 
-  const [treeLoaded, setTreeLoaded] = useState(false);
-  useEffect(() => {
-    if (treeData.length > 0) setTreeLoaded(true);
-  }, [treeData]);
-
-  if (!mounted) {
-    return (
-      <>
-        <Navbar />
-        <main className="events-page"><div className="events-hero" /></main>
-      </>
-    );
-  }
+  const treeLoaded = loaded && viewMode === "tree";
 
   return (
     <>
       <Navbar />
-
-      <div className="events-hero">
-        <div className="events-hero-bg" />
-        <div className="events-hero-content">
-          <div className="events-hero-text">
-            <div className="events-hero-badge">
-              <Sparkles size={12} />
-              <span>
-                {viewMode === "drill" ? "Drill Down" : viewMode === "images" ? "Images" : "Tree"}
-              </span>
-            </div>
-            <h1 className="events-hero-title">
-              {viewMode === "drill"
-                ? (currentEvent ? currentEvent.title : "Event Gallery")
-                : viewMode === "images"
-                ? "Image Gallery"
-                : "Tree View"}
-            </h1>
-            <p className="events-hero-subtitle">
-              {viewMode === "drill" && (
-                showDrillImages
-                  ? `${drillImages.length} image${drillImages.length !== 1 ? "s" : ""}`
-                  : currentEventId
-                  ? `${drillChildren.length} sub-event${drillChildren.length !== 1 ? "s" : ""}`
-                  : `${mainEvents.length} event${mainEvents.length !== 1 ? "s" : ""}`
-              )}
-              {viewMode === "images" && (
-                imagesSelectedMain
-                  ? `${imagesBrowserDisplay.length} image${imagesBrowserDisplay.length !== 1 ? "s" : ""}`
-                  : `${mainEvents.length} event${mainEvents.length !== 1 ? "s" : ""}`
-              )}
-              {viewMode === "tree" && `${filtered.length} event${filtered.length !== 1 ? "s" : ""} in hierarchy`}
+      <main style={{ maxWidth: 1200, margin: "0 auto", padding: "28px 24px" }}>
+        
+        {/* Header toolbar */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 14 }}>
+          <div>
+            <h1 style={{ fontSize: "1.45rem", fontWeight: 850, color: "var(--color-gov-text)", letterSpacing: "-0.01em" }}>Events Portal</h1>
+            <p style={{ fontSize: "0.82rem", color: "var(--color-gov-muted)", marginTop: 2 }}>
+              Explore structural hierarchy, dynamic image galleries, and event timeline audits.
             </p>
           </div>
+          
+          {/* View switcher */}
+          <div style={{ display: "flex", background: "var(--color-gov-surface)", padding: 3, borderRadius: 8, border: "1px solid var(--color-gov-border)" }}>
+            <button
+              onClick={() => setViewMode("drill")}
+              className={`view-mode-btn ${viewMode === "drill" ? "active" : ""}`}
+              title="Drill-down layout"
+            >
+              <LayoutPanelTop size={14} />
+              <span>Drill-down</span>
+            </button>
+            <button
+              onClick={() => setViewMode("images")}
+              className={`view-mode-btn ${viewMode === "images" ? "active" : ""}`}
+              title="Images browser"
+            >
+              <Images size={14} />
+              <span>Images</span>
+            </button>
+            <button
+              onClick={() => setViewMode("tree")}
+              className={`view-mode-btn ${viewMode === "tree" ? "active" : ""}`}
+              title="Tree hierarchy layout"
+            >
+              <TreePine size={14} />
+              <span>Tree View</span>
+            </button>
+          </div>
+        </div>
 
-          {/* Controls */}
-          <div className="events-controls">
-            <div className="events-controls-top">
-              <div className="events-search-wrapper">
-                <Search size={15} className="events-search-icon" />
-                <input
-                  type="text"
-                  placeholder={viewMode === "images" ? "Search events..." : "Search events..."}
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  className="events-search-input"
-                />
-              </div>
-              <div className="events-view-toggle">
-                <button className={`events-view-btn ${viewMode === 'drill' ? 'active' : ''}`} onClick={() => {
-                  setViewMode('drill');
-                  setDrillImages([]);
-                  setViewingImagesEventId(null);
-                  setImagesPushedStack(false);
-                }} title="Drill-down view">
-                  <LayoutPanelTop size={15} />
-                </button>
-                <button className={`events-view-btn ${viewMode === 'images' ? 'active' : ''}`} onClick={() => setViewMode('images')} title="Images browser">
-                  <Images size={15} />
-                </button>
-                <button className={`events-view-btn ${viewMode === 'tree' ? 'active' : ''}`} onClick={() => setViewMode('tree')} title="Tree view">
-                  <TreePine size={15} />
-                </button>
-              </div>
+        {/* Global Filters bar */}
+        <div className="gov-card" style={{ padding: "16px 20px", marginBottom: 24, display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            
+            {/* Search */}
+            <div style={{ position: "relative", flex: "1 1 240px" }}>
+              <Search size={14} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--color-gov-muted)" }} />
+              <input
+                className="form-input"
+                style={{ paddingLeft: 34, fontSize: "0.85rem" }}
+                placeholder="Search event title, description…"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+              />
             </div>
-            <div className="events-filters">
-              <div className="events-filters-row events-filters-dates">
-                <div className="events-filter-group">
-                  <span className="events-filter-label">Event Date:</span>
-                  <select
-                    className="events-select"
-                    value={filterYear}
-                    onChange={e => setFilterYear(e.target.value)}
-                  >
-                    <option value="">All Years</option>
-                    {yearOptions.map(y => (
-                      <option key={y} value={y.toString()}>{y}</option>
-                    ))}
-                  </select>
-                  <select
-                    className="events-select"
-                    value={filterMonth}
-                    onChange={e => setFilterMonth(e.target.value)}
-                  >
-                    <option value="">All Months</option>
-                    {[
-                      { val: "01", name: "January" },
-                      { val: "02", name: "February" },
-                      { val: "03", name: "March" },
-                      { val: "04", name: "April" },
-                      { val: "05", name: "May" },
-                      { val: "06", name: "June" },
-                      { val: "07", name: "July" },
-                      { val: "08", name: "August" },
-                      { val: "09", name: "September" },
-                      { val: "10", name: "October" },
-                      { val: "11", name: "November" },
-                      { val: "12", name: "December" }
-                    ].map(m => (
-                      <option key={m.val} value={m.val}>{m.name}</option>
-                    ))}
-                  </select>
-                  <select
-                    className="events-select"
-                    value={filterDay}
-                    onChange={e => setFilterDay(e.target.value)}
-                  >
-                    <option value="">All Days</option>
-                    {Array.from({ length: 31 }, (_, i) => (i + 1).toString().padStart(2, "0")).map(d => (
-                      <option key={d} value={d}>{parseInt(d)}</option>
-                    ))}
-                  </select>
-                  {(filterYear || filterMonth || filterDay) && (
-                    <button
-                      onClick={() => { setFilterYear(""); setFilterMonth(""); setFilterDay(""); }}
-                      className="timeline-clear-btn"
-                      title="Clear event date filters"
-                    >
-                      <X size={13} />
-                    </button>
-                  )}
-                </div>
-                <div className="events-filter-group">
-                  <span className="events-filter-label">Closing:</span>
-                  <select
-                    className="events-select"
-                    value={closingFilterYear}
-                    onChange={e => setClosingFilterYear(e.target.value)}
-                  >
-                    <option value="">All Years</option>
-                    {yearOptions.map(y => (
-                      <option key={y} value={y.toString()}>{y}</option>
-                    ))}
-                  </select>
-                  <select
-                    className="events-select"
-                    value={closingFilterMonth}
-                    onChange={e => setClosingFilterMonth(e.target.value)}
-                  >
-                    <option value="">All Months</option>
-                    {[
-                      { val: "01", name: "January" },
-                      { val: "02", name: "February" },
-                      { val: "03", name: "March" },
-                      { val: "04", name: "April" },
-                      { val: "05", name: "May" },
-                      { val: "06", name: "June" },
-                      { val: "07", name: "July" },
-                      { val: "08", name: "August" },
-                      { val: "09", name: "September" },
-                      { val: "10", name: "October" },
-                      { val: "11", name: "November" },
-                      { val: "12", name: "December" }
-                    ].map(m => (
-                      <option key={m.val} value={m.val}>{m.name}</option>
-                    ))}
-                  </select>
-                  <select
-                    className="events-select"
-                    value={closingFilterDay}
-                    onChange={e => setClosingFilterDay(e.target.value)}
-                  >
-                    <option value="">All Days</option>
-                    {Array.from({ length: 31 }, (_, i) => (i + 1).toString().padStart(2, "0")).map(d => (
-                      <option key={d} value={d}>{parseInt(d)}</option>
-                    ))}
-                  </select>
-                  {(closingFilterYear || closingFilterMonth || closingFilterDay) && (
-                    <button
-                      onClick={() => { setClosingFilterYear(""); setClosingFilterMonth(""); setClosingFilterDay(""); }}
-                      className="timeline-clear-btn"
-                      title="Clear closing date filters"
-                    >
-                      <X size={13} />
-                    </button>
-                  )}
-                </div>
-              </div>
-              {viewMode === "images" ? (
-                <>
-                  <div className="events-filters-row">
-                    <span className="events-filter-label">Location:</span>
-                    <select className="events-select" value={countryFilter} onChange={e => { setCountryFilter(e.target.value); setStateFilter(""); setDistrictFilter(""); }}>
-                      <option value="">All Countries</option>
-                      {countries.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                    <select className="events-select" value={stateFilter} onChange={e => { setStateFilter(e.target.value); setDistrictFilter(""); }}>
-                      <option value="">All States</option>
-                      {states.map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                    <select className="events-select" value={districtFilter} onChange={e => setDistrictFilter(e.target.value)}>
-                      <option value="">All Districts</option>
-                      {districts.map(d => <option key={d} value={d}>{d}</option>)}
-                    </select>
-                  </div>
-                  <div className="events-filters-row">
-                    <span className="events-filter-label">Dept:</span>
-                    <select className="events-select" value={imagesDeptFilter} onChange={e => setImagesDeptFilter(e.target.value)}>
-                      <option value="">All</option>
-                      {departments.map(d => <option key={d} value={d}>{d}</option>)}
-                    </select>
-                    <span className="events-filter-label">Sort:</span>
-                    <select className="events-select" value={imagesSort} onChange={e => setImagesSort(e.target.value)}>
-                      <option value="newest">Newest First</option>
-                      <option value="participants">Most Participants</option>
-                      <option value="images">Most Images</option>
-                    </select>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="events-filters-row">
-                    <span className="events-filter-label">Location:</span>
-                    <select className="events-select" value={countryFilter} onChange={e => { setCountryFilter(e.target.value); setStateFilter(""); setDistrictFilter(""); }}>
-                      <option value="">All Countries</option>
-                      {countries.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                    <select className="events-select" value={stateFilter} onChange={e => { setStateFilter(e.target.value); setDistrictFilter(""); }}>
-                      <option value="">All States</option>
-                      {states.map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                    <select className="events-select" value={districtFilter} onChange={e => setDistrictFilter(e.target.value)}>
-                      <option value="">All Districts</option>
-                      {districts.map(d => <option key={d} value={d}>{d}</option>)}
-                    </select>
-                  </div>
-                  <div className="events-filters-row">
-                    <span className="events-filter-label">Dept:</span>
-                    <select className="events-select" value={deptFilter} onChange={e => setDeptFilter(e.target.value)}>
-                      <option value="">All</option>
-                      {departments.map(d => <option key={d} value={d}>{d}</option>)}
-                    </select>
-                    <span className="events-filter-label">Sort:</span>
-                    <select className="events-select" value={sort} onChange={e => setSort(e.target.value)}>
-                      <option value="newest">Newest First</option>
-                      <option value="participants">Most Participants</option>
-                      <option value="images">Most Images</option>
-                    </select>
-                  </div>
-                </>
-              )}
+
+            {/* Department Filter */}
+            <div style={{ position: "relative", flex: "1 1 180px" }}>
+              <Filter size={12} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--color-gov-muted)" }} />
+              <select
+                className="form-input"
+                style={{ paddingLeft: 32, fontSize: "0.85rem", appearance: "none" }}
+                value={deptFilter}
+                onChange={e => setDeptFilter(e.target.value)}
+              >
+                <option value="">All Departments</option>
+                {departments.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+
+            {/* Sort */}
+            <div style={{ position: "relative", flex: "1 1 160px" }}>
+              <SortAsc size={12} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--color-gov-muted)" }} />
+              <select
+                className="form-input"
+                style={{ paddingLeft: 32, fontSize: "0.85rem", appearance: "none" }}
+                value={sort}
+                onChange={e => { setSort(e.target.value); setImagesSort(e.target.value); }}
+              >
+                <option value="newest">Sort: Newest</option>
+                <option value="participants">Sort: Attendees</option>
+                <option value="images">Sort: Image Count</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Location & date drill downs */}
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", borderTop: "1px solid var(--color-gov-border)", paddingTop: 12 }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", flex: "1 1 auto" }}>
+              <select className="form-input" style={{ width: 130, fontSize: "0.8rem", height: 32, padding: "0 8px" }} value={countryFilter} onChange={e => { setCountryFilter(e.target.value); setStateFilter(""); setDistrictFilter(""); }}>
+                <option value="">All Countries</option>
+                {countries.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <select className="form-input" style={{ width: 130, fontSize: "0.8rem", height: 32, padding: "0 8px" }} value={stateFilter} onChange={e => { setStateFilter(e.target.value); setDistrictFilter(""); }} disabled={!countryFilter}>
+                <option value="">All States</option>
+                {states.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <select className="form-input" style={{ width: 130, fontSize: "0.8rem", height: 32, padding: "0 8px" }} value={districtFilter} onChange={e => setDistrictFilter(e.target.value)} disabled={!stateFilter}>
+                <option value="">All Districts</option>
+                {districts.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+
+            {/* Event Timeline parameters */}
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--color-gov-muted)" }}>Date:</span>
+              <select className="form-input" style={{ width: 85, fontSize: "0.8rem", height: 32, padding: "0 4px" }} value={filterYear} onChange={e => setFilterYear(e.target.value)}>
+                <option value="">Year</option>
+                {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+              <select className="form-input" style={{ width: 75, fontSize: "0.8rem", height: 32, padding: "0 4px" }} value={filterMonth} onChange={e => setFilterMonth(e.target.value)}>
+                <option value="">Month</option>
+                {Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0")).map(m => (
+                  <option key={m} value={m}>{new Date(2000, parseInt(m) - 1).toLocaleString("en-US", { month: "short" })}</option>
+                ))}
+              </select>
+              <select className="form-input" style={{ width: 65, fontSize: "0.8rem", height: 32, padding: "0 4px" }} value={filterDay} onChange={e => setFilterDay(e.target.value)}>
+                <option value="">Day</option>
+                {Array.from({ length: 31 }, (_, i) => String(i + 1)).map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
             </div>
           </div>
         </div>
-      </div>
 
-      <main className="events-main">
-        {/* ===================== LAYOUT 1: DRILL-DOWN ===================== */}
+        {/* ===================== LAYOUT 1: DRILL DOWN LAYOUT ===================== */}
         {viewMode === "drill" && (
-          <>
-            {drillStack.length > 1 && (
-              <div className="drill-breadcrumb">
-                <button onClick={goBack} className="drill-back-btn">
-                  <ChevronLeft size={16} />
-                  Back
-                </button>
-                <div className="drill-breadcrumb-trail">
-                  {breadcrumbs.map((crumb, i) => (
-                    <span key={crumb.id ?? "root"} className="drill-crumb">
-                      {i > 0 && <ChevronRight size={12} className="drill-crumb-sep" />}
-                      {i < breadcrumbs.length - 1 ? (
-                        <button className="drill-crumb-link" onClick={() => {
-                          setDrillStack(prev => prev.slice(0, i + 1));
-                          setDrillImages([]);
+          <div className="drill-layout">
+            
+            {/* Breadcrumbs */}
+            <div className="drill-breadcrumbs">
+              {breadcrumbs.map((crumb, idx) => (
+                <Fragment key={idx}>
+                  {idx > 0 && <span className="drill-breadcrumbs-separator">/</span>}
+                  {idx === breadcrumbs.length - 1 ? (
+                    <span className="drill-breadcrumb active">{crumb.label}</span>
+                  ) : (
+                    <button
+                      className="drill-breadcrumb-btn"
+                      onClick={() => {
+                        const targetIdx = drillStack.indexOf(crumb.id);
+                        if (targetIdx !== -1) {
+                          setDrillStack(prev => prev.slice(0, targetIdx + 1));
                           setViewingImagesEventId(null);
                           setImagesPushedStack(false);
-                        }}>
-                          {crumb.label}
-                        </button>
-                      ) : (
-                        viewingImagesEventId !== null ? (
-                          <button className="drill-crumb-link" onClick={() => {
-                            setViewingImagesEventId(null);
-                            setImagesPushedStack(false);
-                            setDrillImages([]);
-                          }}>
-                            {crumb.label}
-                          </button>
-                        ) : (
-                          <span className="drill-crumb-current">{crumb.label}</span>
-                        )
-                      )}
-                    </span>
-                  ))}
-                </div>
-              </div>
+                          setDrillImages([]);
+                        }
+                      }}
+                    >
+                      {crumb.label}
+                    </button>
+                  )}
+                </Fragment>
+              ))}
+            </div>
+
+            {/* Back action */}
+            {drillStack.length > 1 && (
+              <button className="drill-back-btn" onClick={goBack}>
+                <ChevronLeft size={16} />
+                <span>Go Back</span>
+              </button>
             )}
 
             {showDrillImages && (
-              <div className="drill-images-section">
-                {currentEvent && (
-                  <div className="drill-context-header">
-                    <FolderOpen size={16} />
-                    <span>{currentEvent.title} — Images</span>
-                  </div>
-                )}
+              <div className="drill-images-container">
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                  <h2 style={{ fontSize: "1.05rem", fontWeight: 750, color: "var(--color-gov-text)" }}>
+                    Event Gallery {currentEvent && `— ${currentEvent.title}`}
+                  </h2>
+                </div>
+                
                 {drillLoading ? (
-                  <div className="drill-loading">Loading images...</div>
+                  <div className="drill-loading">Loading event archive images...</div>
                 ) : filteredDrillImages.length === 0 ? (
-                  <div className="events-empty">
+                  <div className="events-empty" style={{ padding: "40px 24px" }}>
                     <div className="events-empty-icon"><ImageIcon size={32} /></div>
                     <p className="events-empty-title">No Images</p>
                     <p className="events-empty-subtitle">No images match the current timeline.</p>
@@ -804,7 +667,9 @@ export default function EventsPage() {
                               </div>
                               <div className="image-card-meta-row">
                                 <Calendar size={11} className="image-card-meta-icon" />
-                                <span style={{ color: "rgba(255,255,255,0.85)" }}>{new Date(img.uploaded_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</span>
+                                <span style={{ color: "rgba(255,255,255,0.85)" }}>
+                                  {mounted ? new Date(img.uploaded_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
+                                </span>
                               </div>
                             </div>
                           </div>
@@ -860,13 +725,17 @@ export default function EventsPage() {
                              <div className="drill-card-meta">
                                <span>
                                  <Calendar size={12} />
-                                 {ev.event_date ? new Date(ev.event_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
+                                 {mounted && ev.event_date ? new Date(ev.event_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
                                </span>
                                {ev.closing_date && (
                                  <span style={{ color: ev.status === "closed" ? "var(--color-gov-danger, #ef4444)" : "var(--color-gov-gold, #e5c07b)" }}>
                                    <Calendar size={12} />
-                                   {ev.status === "closed" ? "Closed: " : "Closes: "}
-                                   {new Date(ev.closing_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                                   {mounted ? (
+                                     <>
+                                       {ev.status === "closed" ? "Closed: " : "Closes: "}
+                                       {new Date(ev.closing_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                                     </>
+                                   ) : "—"}
                                  </span>
                                )}
                                <span>
@@ -937,7 +806,7 @@ export default function EventsPage() {
                                 <div className="drill-sub-meta" style={{ flexWrap: "wrap", gap: "4px 8px" }}>
                                   <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
                                     <Calendar size={10} />
-                                    {ev.event_date ? new Date(ev.event_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
+                                    {mounted && ev.event_date ? new Date(ev.event_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
                                   </span>
                                   {ev.closing_date && (
                                     <span style={{ 
@@ -947,8 +816,12 @@ export default function EventsPage() {
                                       color: ev.status === "closed" ? "var(--color-gov-danger, #ef4444)" : "var(--color-gov-gold, #e5c07b)" 
                                     }}>
                                       <Calendar size={10} />
-                                      {ev.status === "closed" ? "Closed: " : "Closes: "}
-                                      {new Date(ev.closing_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                                      {mounted ? (
+                                        <>
+                                          {ev.status === "closed" ? "Closed: " : "Closes: "}
+                                          {new Date(ev.closing_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                                        </>
+                                      ) : "—"}
                                     </span>
                                   )}
                                   <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
@@ -958,291 +831,3 @@ export default function EventsPage() {
                                   <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
                                     <Images size={10} />
                                     {getEventHierarchyImages(ev.id)} img
-                                  </span>
-                                  <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
-                                    <Users size={10} />
-                                    {getEventHierarchyParticipants(ev.id)}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                            {ev.image_count > 0 && (
-                              <button className="drill-sub-images-btn" onClick={(e) => { e.stopPropagation(); goToImages(ev.id); }}>
-                                <ImageIcon size={12} />
-                                View Images
-                              </button>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  )
-                )}
-              </>
-            )}
-          </>
-        )}
-
-        {/* ===================== LAYOUT 2: IMAGES BROWSER ===================== */}
-        {viewMode === "images" && (
-          <div className="images-browser">
-            {/* Main events list (clickable pills/cards) */}
-            {mainEvents.length === 0 ? (
-              <div className="events-empty">
-                <div className="events-empty-icon"><ImageIcon size={32} /></div>
-                <p className="events-empty-title">No Events Found</p>
-                <p className="events-empty-subtitle">{deptFilter || searchQuery ? "Try adjusting your filters." : "Check back soon."}</p>
-              </div>
-            ) : (
-              <>
-                <div className="images-browser-main-list">
-                  {mainEvents.map(ev => (
-                    <button
-                      key={ev.id}
-                      className={`images-browser-main-btn ${imagesSelectedMain === ev.id ? 'active' : ''}`}
-                      onClick={() => handleSelectMainEvent(ev.id)}
-                    >
-                      {ev.preview_image ? (
-                        <img src={`/uploads/${ev.preview_image}`} alt="" className="images-browser-main-thumb" />
-                      ) : (
-                        <div className="images-browser-main-thumb-placeholder"><ImageIcon size={14} /></div>
-                      )}
-                      <span className="images-browser-main-title">{ev.title}</span>
-                      {getEventHierarchyImages(ev.id) > 0 && <span className="images-browser-main-count">{getEventHierarchyImages(ev.id)}</span>}
-                    </button>
-                  ))}
-                </div>
-
-                {imagesSelectedMain && (
-                  <div className="images-browser-content">
-                    {/* Sub-event filter pills (nested inline) */}
-                    {events.some(e => e.parent_id === imagesSelectedMain) && (
-                      <div className="images-browser-sub-filters-container">
-                        <span className="images-browser-sub-level-label">Sub-Events:</span>
-                        {renderSubFilters()}
-                      </div>
-                    )}
-
-                    {/* Images grid */}
-                    {imagesLoading ? (
-                      <div className="drill-loading">Loading images...</div>
-                    ) : imagesBrowserDisplay.length === 0 ? (
-                      <div className="events-empty">
-                        <div className="events-empty-icon"><ImageIcon size={32} /></div>
-                        <p className="events-empty-title">No Images</p>
-                        <p className="events-empty-subtitle">
-                          {imagesSelectedSub ? "This sub-event has no images." : "This event has no images yet."}
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="images-browser-grid">
-                        {imagesBrowserDisplay.map((img: any) => (
-                          <div key={img.id} className="images-browser-card" style={{ cursor: "pointer" }} onClick={() => setLightboxImage(img)}>
-                            <div className="images-browser-image-wrap">
-                              <img src={`/uploads/${img.filename}`} alt={img.caption || ""} />
-                              {img.event_department && <span className="images-browser-dept">{img.event_department}</span>}
-                            </div>
-                            <div className="images-browser-info" style={{ paddingBottom: 0 }}>
-                              <p className="images-browser-event-title">{img.event_title}</p>
-                            </div>
-                            <div className="image-card-footer">
-                              <div className="image-card-meta-rows">
-                                <div className="image-card-meta-row">
-                                  <User size={12} className="image-card-meta-icon" />
-                                  <span>{img.uploader_name}</span>
-                                </div>
-                                <div className="image-card-meta-row">
-                                  <Calendar size={12} className="image-card-meta-icon" />
-                                  <span>{new Date(img.uploaded_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</span>
-                                </div>
-                              </div>
-                              {canDeleteImage(img) && (
-                                <button className="image-card-delete-btn" onClick={(e) => { e.stopPropagation(); handleDeleteImage(img.id); }} title="Delete image">
-                                  <Trash2 size={14} />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        ))}  
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {!imagesSelectedMain && (
-                  <div className="events-empty" style={{ marginTop: 20, borderStyle: "dashed" }}>
-                    <div className="events-empty-icon"><FolderOpen size={32} /></div>
-                    <p className="events-empty-title">Select an Event</p>
-                    <p className="events-empty-subtitle">Click on an event above to view its images.</p>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        )}
-
-        {/* ===================== LAYOUT 3: TREE VIEW ===================== */}
-        {viewMode === "tree" && (
-          <>
-            {treeData.length === 0 ? (
-              <div className="events-empty">
-                <div className="events-empty-icon"><TreePine size={32} /></div>
-                <p className="events-empty-title">No Events Found</p>
-                <p className="events-empty-subtitle">{deptFilter || searchQuery ? "Try adjusting your filters." : "Check back soon."}</p>
-              </div>
-            ) : (
-              <div className="tree-view-container">
-                <table className="tree-table">
-                  <thead>
-                    <tr className="tree-ascii-header">
-                      <th className="tree-th tree-th-name">Event</th>
-                      <th className="tree-th tree-th-date">Date</th>
-                      <th className="tree-th tree-th-loc">Location</th>
-                      <th className="tree-th tree-th-img">Images</th>
-                      <th className="tree-th tree-th-ppl">Participants</th>
-                      <th className="tree-th tree-th-closing">Closing</th>
-                      <th className="tree-th tree-th-dept">Dept</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {treeData.map((node: any, i: number) => (
-                      <TreeNode
-                        key={node.id}
-                        node={node}
-                        expanded={treeExpanded}
-                        onToggle={(id) => setTreeExpanded(prev => ({ ...prev, [id]: !prev[id] }))}
-                        depth={0}
-                        loaded={treeLoaded}
-                        prefix=""
-                        isLast={i === treeData.length - 1}
-                        getHierarchyImages={getEventHierarchyImages}
-                        getHierarchyParticipants={getEventHierarchyParticipants}
-                      />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </>
-        )}
-      </main>
-
-      {/* Lightbox */}
-      {lightboxImage && (
-        <div className="lightbox" onClick={() => setLightboxImage(null)}>
-          <button
-            onClick={() => setLightboxImage(null)}
-            style={{
-              position: "absolute", top: 20, right: 20,
-              background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)",
-              borderRadius: "50%", width: 40, height: 40,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              cursor: "pointer", color: "white", zIndex: 10,
-            }}
-          >
-            <X size={20} />
-          </button>
-          <div onClick={(e) => e.stopPropagation()} style={{ width: "90vw", height: "85vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-            <img
-              src={`/uploads/${lightboxImage.filename}`}
-              alt={lightboxImage.caption || ""}
-              style={{ maxWidth: "100%", maxHeight: "calc(85vh - 40px)", borderRadius: 8, objectFit: "contain" }}
-            />
-            {(lightboxImage.caption || lightboxImage.event_department) && (
-              <div style={{ color: "rgba(255,255,255,0.8)", textAlign: "center", marginTop: 12, fontSize: "0.875rem" }}>
-                {lightboxImage.caption}
-                {lightboxImage.caption && lightboxImage.event_department && " · "}
-                {lightboxImage.event_department && (
-                  <span style={{ color: "var(--color-gov-gold)", fontWeight: 600 }}>{lightboxImage.event_department}</span>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
-
-/* ============================
-   TREE NODE COMPONENT (ASCII)
-   ============================ */
-function TreeNode({ node, expanded, onToggle, depth, loaded, prefix = "", isLast = false, getHierarchyImages, getHierarchyParticipants }: {
-  node: any; expanded: Record<number, boolean>; onToggle: (id: number) => void;
-  depth: number; loaded: boolean; prefix?: string; isLast?: boolean;
-  getHierarchyImages?: (id: number) => number;
-  getHierarchyParticipants?: (id: number) => number;
-}) {
-  const isExpanded = expanded[node.id] ?? false;
-  const hasChildren = node.children && node.children.length > 0;
-  const connector = isLast ? "└── " : "├── ";
-  const childPrefix = prefix + (isLast ? "    " : "│   ");
-
-  const loc = [node.district, node.state, node.country].filter(Boolean).join(", ");
-
-  const dateStr = node.event_date
-    ? new Date(node.event_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
-    : "-";
-  const locStr = loc || "-";
-  const hierarchyImgs = getHierarchyImages ? getHierarchyImages(node.id) : node.image_count;
-  const hierarchyPpl = getHierarchyParticipants ? getHierarchyParticipants(node.id) : node.participant_count;
-  const imgStr = hierarchyImgs > 0 ? `${node.image_count} (${hierarchyImgs})` : "-";
-  const pplStr = (node.participant_count > 0 || hierarchyPpl > 0) ? `${node.participant_count || 0} (${hierarchyPpl})` : "-";
-  const closingStr = node.closing_date
-    ? (
-      <span style={{ color: node.status === "closed" ? "var(--color-gov-danger, #ef4444)" : "var(--color-gov-gold, #e5c07b)" }}>
-        {node.status === "closed" ? "Closed: " : "Closes: "}
-        {new Date(node.closing_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-      </span>
-    )
-    : <span>-</span>;
-
-  return (
-    <>
-      <tr className={`tree-ascii-row ${loaded ? 'visible' : ''}`} style={{ cursor: "pointer", animationDelay: `${depth * 40}ms` }} onClick={() => window.location.href = `/events/${node.id}`}>
-        <td className="tree-td tree-td-name">
-          <span className="tree-ascii-prefix">{prefix}</span>
-          <span className="tree-ascii-connector">
-            {hasChildren ? (
-              <button
-                className="tree-ascii-toggle"
-                onClick={(e) => { e.stopPropagation(); onToggle(node.id); }}
-                title={isExpanded ? "Collapse" : "Expand"}
-              >
-                {connector}{isExpanded ? "▼ " : "▶ "}
-              </button>
-            ) : (
-              <span className="tree-ascii-leaf">{connector}</span>
-            )}
-          </span>
-          <span className="tree-ascii-icon">
-            {hasChildren ? "📁" : "📄"}
-          </span>
-          <span className="tree-ascii-name">{node.title}</span>
-        </td>
-        <td className="tree-td tree-td-date">{dateStr}</td>
-        <td className="tree-td tree-td-loc">{locStr}</td>
-        <td className="tree-td tree-td-img">{imgStr}</td>
-        <td className="tree-td tree-td-ppl">{pplStr}</td>
-        <td className="tree-td tree-td-closing">{closingStr}</td>
-        <td className="tree-td tree-td-dept">{node.department ? <span className="tree-ascii-dept">{node.department}</span> : <span className="tree-ascii-dept" style={{ opacity: 0.3 }}>-</span>}</td>
-      </tr>
-      {hasChildren && isExpanded && (
-        node.children.map((child: any, i: number) => (
-          <TreeNode
-            key={child.id}
-            node={child}
-            expanded={expanded}
-            onToggle={onToggle}
-            depth={depth + 1}
-            loaded={loaded}
-            prefix={childPrefix}
-            isLast={i === node.children.length - 1}
-            getHierarchyImages={getHierarchyImages}
-            getHierarchyParticipants={getHierarchyParticipants}
-          />
-        ))
-      )}
-    </>
-  );
-}
