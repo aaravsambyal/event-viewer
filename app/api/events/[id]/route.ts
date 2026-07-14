@@ -73,9 +73,30 @@ export async function PATCH(
   // Verify parent exists
   if ((type === 'sub' || parent_id !== undefined) && (parent_id ?? event.parent_id)) {
     const checkParentId = parent_id ?? event.parent_id;
+    if (checkParentId === eventId) {
+      return NextResponse.json({ error: "An event cannot be its own parent" }, { status: 400 });
+    }
     const parent = db.prepare("SELECT id FROM events WHERE id = ?").get(checkParentId) as any;
     if (!parent) {
       return NextResponse.json({ error: "Parent event not found" }, { status: 400 });
+    }
+    
+    // Cycle check prevention
+    const wouldCreateCycle = (currParentId: number): boolean => {
+      let currentId = currParentId;
+      const visited = new Set<number>();
+      while (currentId) {
+        if (currentId === eventId) return true;
+        if (visited.has(currentId)) return true;
+        visited.add(currentId);
+        const p = db.prepare("SELECT parent_id FROM events WHERE id = ?").get(currentId) as any;
+        if (!p) break;
+        currentId = p.parent_id;
+      }
+      return false;
+    };
+    if (wouldCreateCycle(checkParentId)) {
+      return NextResponse.json({ error: "Setting this parent would create a cycle hierarchy" }, { status: 400 });
     }
   }
 
@@ -87,15 +108,29 @@ export async function PATCH(
     );
   }
 
-  // Cascade close all descendant sub-events recursively when any event is closed
+  // Cascade close all descendant sub-events recursively when any event is closed (capped recursion depth)
   if (status === "closed" && event.status !== "closed") {
     db.prepare(`
-      WITH RECURSIVE descendants(id) AS (
-        SELECT id FROM events WHERE parent_id = ?
+      WITH RECURSIVE descendants(id, depth) AS (
+        SELECT id, 1 FROM events WHERE parent_id = ?
         UNION ALL
-        SELECT e.id FROM events e JOIN descendants d ON e.parent_id = d.id
+        SELECT e.id, d.depth + 1 FROM events e JOIN descendants d ON e.parent_id = d.id
+        WHERE d.depth < 100
       )
       UPDATE events SET status = 'closed' WHERE id IN (SELECT id FROM descendants) AND status = 'active'
+    `).run(eventId);
+  }
+
+  // Cascade reopen all descendant sub-events recursively when any event is reopened
+  if (status === "active" && event.status !== "active") {
+    db.prepare(`
+      WITH RECURSIVE descendants(id, depth) AS (
+        SELECT id, 1 FROM events WHERE parent_id = ?
+        UNION ALL
+        SELECT e.id, d.depth + 1 FROM events e JOIN descendants d ON e.parent_id = d.id
+        WHERE d.depth < 100
+      )
+      UPDATE events SET status = 'active' WHERE id IN (SELECT id FROM descendants) AND status = 'closed'
     `).run(eventId);
   }
 
@@ -163,8 +198,14 @@ export async function DELETE(
   if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
 
   // Members can only delete their own events
-  if (session.role === "member" && event.created_by !== session.id) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (session.role === "member") {
+    if (!event.created_by || event.created_by !== session.id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    const isDeptMatched = !event.department || (session.department && event.department === session.department);
+    if (!isDeptMatched) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
   }
 
   // Delete associated images from filesystem
