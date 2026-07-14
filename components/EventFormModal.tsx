@@ -95,6 +95,7 @@ export default function EventFormModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (dateWarning) return;
     setLoading(true);
     try {
       const resolvedType = subOnly ? 'sub' : type;
@@ -262,7 +263,6 @@ export default function EventFormModal({
               placeholder="e.g. 500"
               value={participantCount}
               onChange={(e) => setParticipantCount(e.target.value)}
-
             />
           </div>
           {dateWarning && (
@@ -319,7 +319,7 @@ export default function EventFormModal({
             <button type="button" className="btn-outline" onClick={onClose}>
               Cancel
             </button>
-            <button type="submit" className="btn-primary" disabled={loading}>
+            <button type="submit" className="btn-primary" disabled={loading || !!dateWarning}>
               {loading ? "Saving…" : "Save Event"}
             </button>
           </div>
